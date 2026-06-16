@@ -1,5 +1,6 @@
 from collections import defaultdict
 from copy import deepcopy
+import os
 import re
 from pm4py.algo.discovery.inductive import algorithm as inductive_miner
 from pm4py.objects.conversion.process_tree import converter as pt_converter
@@ -23,6 +24,10 @@ import pm4py
 from pm4py.objects.conversion.log import converter as log_converter
 from pm4py.objects.conversion.log import converter as df_to_log_converter
 import pandas as pd
+
+'''
+Heavy pm4py utilities: merging logs, computing quality metrics (fitness, precision, F1, CFC), converting to BPMN, relabeling fragments, XES export.
+'''
 
 def merge_event_logs_by_trace_id(log1, log2):
     """
@@ -80,10 +85,11 @@ def calculate_cfc(petri_net):
 def calculate_metrics(process_tree, event_log):
 
     net, im, fm = pt_converter.apply(process_tree)
-    log_fitness = pm4py.fitness_alignments(event_log,net, im, fm, multi_processing=True)['log_fitness']
-    precision = pm4py.precision_alignments(event_log,net, im, fm, multi_processing=True)
+    log_fitness = pm4py.fitness_alignments(event_log,net, im, fm, multi_processing=False)['log_fitness']
+    precision = pm4py.precision_alignments(event_log,net, im, fm, multi_processing=False)
 
-    f1 = 2 * (log_fitness * precision) / (log_fitness + precision)
+    denominator = log_fitness + precision
+    f1 = 2 * (log_fitness * precision) / denominator if denominator != 0 else 0.0
 
     cfc_value = calculate_cfc(net)
 
@@ -328,10 +334,8 @@ def export_xes_by_fragments(event_log, fragments, export_path, filename, fm, inc
             parameters={"attribute_key": "concept:name","positive": True},
             values=fragment
         )
-        i_relabeled = fragment_mapping[str(i)]
-        group_name = f'fragment_{i_relabeled}'
-        print(f'\n{group_name}: {fragment}')
-        xes_exporter.apply(fragment_event_log,f'{export_path}/xes/{filename}.{i_relabeled}.{fm}.xes.gz')
+        print(f'\nfragment_{i}: {fragment}')
+        xes_exporter.apply(fragment_event_log,f'{export_path}/xes/{filename}.{i}.{fm}.xes.gz')
     
     if root_model_qm is not None and mean_qm is not None:
         txt_path = f'{export_path}/{filename}.pm4py.metrics.txt'
@@ -364,3 +368,74 @@ def import_xes(logs_dir, filename, path_filtering=False):
         full_event_log = variants_filter.apply(full_event_log, selected_variants)
     
     return full_event_log
+
+
+def parse_metrics_file(metrics_path):
+    """
+    Parses the PFM metrics file and returns fragments per method.
+
+    Args:
+        metrics_path (str): Path to the .pfm.metrics.txt file.
+
+    Returns:
+        dict: {method: {"score": float, "fragments": [[activity_names], ...]}}
+    """
+    import ast
+    results = {}
+    with open(metrics_path, 'r') as f:
+        for line in f:
+            parts = line.strip().split(";")
+            if len(parts) < 3:
+                continue
+            method = parts[0]
+            score = float(parts[2])
+            fragments_str = ";".join(parts[3:])
+            fragments = ast.literal_eval(fragments_str)
+            results[method] = {"score": score, "fragments": fragments}
+    return results
+
+
+def get_xes_dir_and_base(metrics_path):
+    """
+    Derives the XES directory and filename base from a metrics file path.
+
+    Example:
+        metrics_path = "../data/processed/BPIC/BPIC12.xes.gz.pfm.metrics.txt"
+        returns: ("../data/processed/BPIC/xes", "BPIC12.xes.gz")
+    """
+    export_dir = os.path.dirname(metrics_path)
+    metrics_filename = os.path.basename(metrics_path)
+    # Strip ".pfm.metrics.txt" suffix to get the original log filename
+    base = metrics_filename[:-len(".pfm.metrics.txt")]
+    xes_dir = os.path.join(export_dir, "xes")
+    return xes_dir, base
+
+
+def mine_fragment_from_xes(xes_path, noise_threshold=0.2):
+    """
+    Loads a pre-exported XES sub-log for a fragment and mines its process model.
+
+    This is the function to use when the evaluation has already been run and
+    the sub-log XES files exist (exported by export_xes_by_fragments).
+
+    Args:
+        xes_path (str): Path to the fragment's XES sub-log file.
+        noise_threshold (float): Noise threshold for inductive miner.
+
+    Returns:
+        dict: {"process_tree": ..., "log": ..., "gviz": ... or None,
+               "metrics": ... or None}
+    """
+    fragment_log = xes_importer.apply(xes_path)
+
+    if len(fragment_log) == 0:
+        return {"process_tree": None, "log": fragment_log, "gviz": None, "metrics": None}
+
+    process_tree = discover_process_tree_inductive(fragment_log, noise_threshold=noise_threshold)
+    metrics = calculate_metrics(process_tree, fragment_log)
+    bpmn_model = convert_to_bpmn(process_tree)
+    gviz = bpmn_visualizer.apply(bpmn_model)
+
+    return {"process_tree": process_tree, "log": fragment_log, "gviz": gviz, "metrics": metrics}
+
+

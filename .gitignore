@@ -11,3 +11,6 @@ wheels/
 
 uv.lock
 .DS_Store
+/data
+/data
+/data/processed

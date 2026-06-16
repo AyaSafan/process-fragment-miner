@@ -6,7 +6,19 @@ import os
 
 from process_fragment_miner.utils import export_xes_by_fragments, get_fragments_by_labels_from_log, import_xes
 
-def evaluation(logs_dir, export_path, path_filtering=False, dk_fragments=None):
+'''
+End-to-end evaluation: loads logs, runs PFM with all 3 scorers + domain-knowledge baseline, exports fragments to XES, logs metrics.
+'''
+
+
+'''
+- logs_dir — path to XES event log files (or a single file)
+- export_path — where results are saved
+- path_filtering — optional, keeps only variants covering 80% of cases
+- dk_fragments — optional, pre-defined "domain knowledge" fragments (baseline)
+'''
+
+def evaluation(logs_dir, export_path, path_filtering=False, dk_fragments=None, methods=['dk','dependency','bigram','similarity']):
     if os.path.isfile(logs_dir):
         filenames = [os.path.basename(logs_dir)]
         logs_dir = os.path.dirname(logs_dir)
@@ -24,7 +36,7 @@ def evaluation(logs_dir, export_path, path_filtering=False, dk_fragments=None):
         )
         if dk_fragments == None:
             dk_fragments = get_fragments_by_labels_from_log(event_log)
-        for fm in ['dk','dependency','bigram','similarity']:
+        for fm in methods:
             if fm == "dk":
                 fragments = dk_fragments
             else:

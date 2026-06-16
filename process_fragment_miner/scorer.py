@@ -3,6 +3,14 @@ from collections import defaultdict
 import numpy as np
 from process_fragment_miner.adapters.word2vec_adapter import Word2VecAdapter
 
+
+'''
+Scoring strategies
+- bigram — Laplace-smoothed bigram probability (how likely is this activity sequence given training data?)
+- dependency — product of dependency strengths along the path
+- similarity — average Word2Vec cosine similarity between consecutive activities
+'''
+
 class BaseScorer:
     def score(self, trace: List[str]) -> float:
         raise NotImplementedError("Must implement score(trace)")
