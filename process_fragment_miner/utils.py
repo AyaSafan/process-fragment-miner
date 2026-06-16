@@ -411,6 +411,26 @@ def get_xes_dir_and_base(metrics_path):
     return xes_dir, base
 
 
+def save_process_trees(process_trees, output_path):
+    """
+    Saves process tree strings to a text file.
+
+    Format:
+        method
+           fragment_index: tree_string
+
+    Args:
+        process_trees (dict): {method: [(frag_idx, tree_string), ...]}
+        output_path (str): Path to the output .txt file.
+    """
+    with open(output_path, 'w', encoding='utf-8') as f:
+        for method, trees in process_trees.items():
+            f.write(f'{method}\n')
+            for frag_idx, tree_str in trees:
+                f.write(f'  {frag_idx}: {tree_str}\n')
+            f.write('\n')
+
+
 def mine_fragment_from_xes(xes_path, noise_threshold=0.2):
     """
     Loads a pre-exported XES sub-log for a fragment and mines its process model.
