@@ -10,7 +10,7 @@ class ScorerFactory:
             "class": BigramScorer,
             "from_miner": {"traces": "get_traces"},
         },
-        "dependency": {
+        "heuristic": {
             "class": DependencyScorer,
             "from_miner": {"dependency_matrix": "dependencies"},
         },

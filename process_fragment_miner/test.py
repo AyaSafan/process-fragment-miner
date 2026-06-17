@@ -18,7 +18,7 @@ End-to-end evaluation: loads logs, runs PFM with all 3 scorers + domain-knowledg
 - dk_fragments — optional, pre-defined "domain knowledge" fragments (baseline)
 '''
 
-def evaluation(logs_dir, export_path, path_filtering=False, dk_fragments=None, methods=['dk','dependency','bigram','similarity']):
+def evaluation(logs_dir, export_path, path_filtering=False, dk_fragments=None,     methods=['dk','heuristic','bigram','similarity']):
     if os.path.isfile(logs_dir):
         filenames = [os.path.basename(logs_dir)]
         logs_dir = os.path.dirname(logs_dir)
@@ -60,9 +60,6 @@ def evaluation(logs_dir, export_path, path_filtering=False, dk_fragments=None, m
                     return_details=True,
                     ensure_coverage=True
                 )
-
-                if fm == 'dependency':
-                    fm = 'heuristic'
 
                 if score is not None and scores is not None:
                     txt_path = f'{export_path}/{filename}.pfm.metrics.txt'
