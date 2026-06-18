@@ -73,6 +73,15 @@ def merge_event_logs_by_trace_id(log1, log2):
 
 
 def calculate_cfc(petri_net):
+    """
+    Calculates the Control Flow Complexity (CFC) of a Petri net.
+
+    Args:
+        petri_net: A PM4Py Petri net object.
+
+    Returns:
+        int: The control flow complexity value.
+    """
     cfc = 0
     for place in petri_net.places:
         if len(place.in_arcs) > 1 or len(place.out_arcs) > 1:
@@ -83,7 +92,16 @@ def calculate_cfc(petri_net):
     return cfc
 
 def calculate_metrics(process_tree, event_log):
+    """
+    Calculates quality metrics (fitness, precision, F1, CFC, size) for a process tree and event log.
 
+    Args:
+        process_tree: Process tree object.
+        event_log: Event log (PM4Py EventLog object).
+
+    Returns:
+        dict: Dictionary with keys 'fi', 'pr', 'F1', 'CFC', and 'size'.
+    """
     net, im, fm = pt_converter.apply(process_tree)
     log_fitness = pm4py.fitness_alignments(event_log,net, im, fm, multi_processing=False)['log_fitness']
     precision = pm4py.precision_alignments(event_log,net, im, fm, multi_processing=False)
@@ -105,10 +123,28 @@ def calculate_metrics(process_tree, event_log):
     return metrics
 
 def calculate_quality_measures(event_log):
+    """
+    Computes the standard quality measures for a mined process tree from the given event log.
+
+    Args:
+        event_log: PM4Py EventLog object.
+
+    Returns:
+        dict: Metrics dictionary, as returned by calculate_metrics.
+    """
     process_tree = inductive_miner.apply(event_log)
     return calculate_metrics(process_tree, event_log)
 
 def calculate_quality_measures_means(fragment_properties):
+    """
+    Calculates the mean of quality metrics over several fragments.
+
+    Args:
+        fragment_properties: List of dictionaries with 'metrics' key per fragment.
+
+    Returns:
+        dict: Dictionary with mean values for each metric, keys suffixed with '_mean'.
+    """
     sums = defaultdict(float)
     count = 0
 
@@ -122,9 +158,25 @@ def calculate_quality_measures_means(fragment_properties):
     return {f'{k}_mean': v / count for k, v in sums.items()}
 
 def get_activities(event_log):
+    """
+    Retrieves the set of unique activity names from an event log.
+
+    Args:
+        event_log: PM4Py EventLog object.
+
+    Returns:
+        set: Set of unique activity names (strings).
+    """
     return {event["concept:name"] for trace in event_log for event in trace}
 
 def plot_pm4py_inductive_miner_bpmn(event_log, quality_measures=True):
+    """
+    Mines a process model from an event log, displays the BPMN and Petri net models, and optionally prints quality measures.
+
+    Args:
+        event_log: PM4Py EventLog object.
+        quality_measures (bool): Whether to print quality measures.
+    """
     process_tree = discover_process_tree_inductive(event_log, noise_threshold= 0.2)
 
     net, im, fm = pt_converter.apply(process_tree)
@@ -139,6 +191,15 @@ def plot_pm4py_inductive_miner_bpmn(event_log, quality_measures=True):
     if quality_measures: print(calculate_metrics(process_tree, event_log))
 
 def get_fragments_by_labels(activities):
+    """
+    Groups activity names by label prefix.
+
+    Args:
+        activities (list of str): List of activity names.
+
+    Returns:
+        list: List of lists, each containing grouped activity names by label prefix.
+    """
     grouped = defaultdict(list)
     activities = [a for a in activities if a not in ["START", "END"]]
 
@@ -154,10 +215,28 @@ def get_fragments_by_labels(activities):
     return list(grouped.values())
 
 def get_fragments_by_labels_from_log(event_log):
+    """
+    Groups activities from a log by their labels (excluding START and END).
+
+    Args:
+        event_log: PM4Py EventLog object.
+
+    Returns:
+        list: List of activity groupings (list of lists).
+    """
     activities = get_activities(event_log)
     return get_fragments_by_labels(activities)
 
 def get_fragment_log(fragments_properties):
+    """
+    Constructs a new EventLog with relabeled start/end events for each fragment.
+
+    Args:
+        fragments_properties: List of dictionaries, each with 'start_events' and 'end_events' per fragment.
+
+    Returns:
+        EventLog: PM4Py EventLog object with relabeled fragment events.
+    """
     fragment_log = EventLog()
     trace_index = {}
 
@@ -182,6 +261,15 @@ def get_fragment_log(fragments_properties):
     return sorting.sort_timestamp_log(fragment_log)
 
 def relabel_fragments_in_tree(tree):
+    """
+    Renumber fragments in a process tree to have contiguous indices.
+
+    Args:
+        tree: Process tree with fragment nodes labeled as 'fragment_N_start'/'fragment_N_end'.
+
+    Returns:
+        tuple: (tree, fragment_mapping) with renumbered labels and mapping old -> new fragment ids.
+    """
     # Helper to traverse in execution order (pre-order)
     def get_nodes_in_order(node):
         nodes = [node]
@@ -221,6 +309,17 @@ def relabel_fragments_in_tree(tree):
     return tree, fragment_mapping
 
 def relabel_fragments_in_event_log(event_log, fragment_mapping, label_key="concept:name"):
+    """
+    Renames fragment labels in the event log according to a given fragment mapping.
+
+    Args:
+        event_log: PM4Py EventLog object.
+        fragment_mapping (dict): Mapping from old fragment indices to new indices.
+        label_key (str): Event attribute for the activity label.
+
+    Returns:
+        EventLog: Updated EventLog with relabeled fragments.
+    """
     new_log = deepcopy(event_log)  # avoid modifying original log
 
     for trace in new_log:
@@ -236,6 +335,21 @@ def relabel_fragments_in_event_log(event_log, fragment_mapping, label_key="conce
     return new_log
 
 def pm4py_bpmn_heuristic_miner(event_log, event_names, threshold_bpmn=0.0, return_pt=False, plot=True, relabel_fragments=False):
+    """
+    Mines a process tree and BPMN using specified event names, optionally
+    relabels fragments, and optionally visualizes models.
+
+    Args:
+        event_log: PM4Py EventLog object.
+        event_names (list): List of activity names (strings) to include.
+        threshold_bpmn (float): Noise threshold for inductive miner.
+        return_pt (bool): Whether to return the process tree.
+        plot (bool): Whether to visualize models.
+        relabel_fragments (bool): Whether to renumber/relabel fragments.
+
+    Returns:
+        tuple: (process_tree, event_log, fragment_mapping) or (event_log, fragment_mapping), depending on arguments.
+    """
     result = ()
     event_log = attributes_filter.apply_events(
         event_log,
@@ -264,6 +378,26 @@ def pm4py_bpmn_heuristic_miner(event_log, event_names, threshold_bpmn=0.0, retur
     return (event_log, *result)
 
 def pm4py_all_fragments(event_log, fragments, fragment_end=True, quality_measures=True, subprocess_threshold_bpmn=0.0, root_process_threshold_bpmn=0.0, plot_fragments=False, plot_root=True):
+    """
+    Mines process models for all fragments, optionally compiling them into a root model and calculating quality metrics.
+
+    Args:
+        event_log: PM4Py EventLog object.
+        fragments (list of lists): List of lists, each representing a fragment's activities.
+        fragment_end (bool): Whether to include end events.
+        quality_measures (bool): Whether to compute quality measures.
+        subprocess_threshold_bpmn (float): Noise threshold for fragment models.
+        root_process_threshold_bpmn (float): Noise threshold for root model.
+        plot_fragments (bool): Visualize fragment process models.
+        plot_root (bool): Visualize root process model.
+
+    Returns:
+        tuple: (root_log, root_model_qm, mean_qm, fragment_mapping)
+            - root_log: EventLog with root fragment traces
+            - root_model_qm: dict of root model quality metrics (or None)
+            - mean_qm: dict of mean fragment metrics (or None)
+            - fragment_mapping: fragment remapping dictionary
+    """
     fragments_properties = []
 
     for i, fragment in enumerate(fragments):
@@ -323,6 +457,20 @@ def pm4py_all_fragments(event_log, fragments, fragment_end=True, quality_measure
 
 
 def export_xes_by_fragments(event_log, fragments, export_path, filename, fm, include_root=True, plot_root=True, plot_fragments=False, pm4py_metrics=False):
+    """
+    Exports fragment sub-logs and (optionally) the root log to XES files, computes and saves quality metrics.
+
+    Args:
+        event_log: PM4Py EventLog object.
+        fragments (list of lists): Fragment groupings.
+        export_path (str): Directory to export to.
+        filename (str): Base file name for output.
+        fm (str): Method name or fragmenting method ID.
+        include_root (bool): Whether to export the root-level XES.
+        plot_root (bool): Whether to plot the root model.
+        plot_fragments (bool): Whether to plot the fragment models.
+        pm4py_metrics (bool): Whether to compute and save metrics with PM4Py.
+    """
     root_event_log,root_model_qm, mean_qm, fragment_mapping = pm4py_all_fragments(event_log,fragments,fragment_end=True,quality_measures=pm4py_metrics,plot_root=plot_root,plot_fragments=plot_fragments)
 
     if include_root:
@@ -343,6 +491,17 @@ def export_xes_by_fragments(event_log, fragments, export_path, filename, fm, inc
             f.write(f'{fm};{root_model_qm};{mean_qm}\n')
 
 def import_xes(logs_dir, filename, path_filtering=False):
+    """
+    Imports an XES event log, with optional path filtering for frequent variants.
+
+    Args:
+        logs_dir (str): Directory containing the XES file.
+        filename (str): XES file name.
+        path_filtering (bool): If True, filters log to most frequent variants covering 80% of cases.
+
+    Returns:
+        EventLog: PM4Py EventLog, possibly filtered.
+    """
     full_event_log = xes_importer.apply(f'{logs_dir}/{filename}')
 
     if path_filtering:
@@ -457,5 +616,3 @@ def mine_fragment_from_xes(xes_path, noise_threshold=0.2):
     gviz = bpmn_visualizer.apply(bpmn_model)
 
     return {"process_tree": process_tree, "log": fragment_log, "gviz": gviz, "metrics": metrics}
-
-

@@ -18,7 +18,7 @@ End-to-end evaluation: loads logs, runs PFM with all 3 scorers + domain-knowledg
 - dk_fragments — optional, pre-defined "domain knowledge" fragments (baseline)
 '''
 
-def evaluation(logs_dir, export_path, path_filtering=False, dk_fragments=None,     methods=['dk','heuristic','bigram','similarity']):
+def evaluation(logs_dir, export_path, path_filtering=False, dk_fragments=None,  methods=['dk','heuristic','bigram','similarity'], plot_fragments=False):
     if os.path.isfile(logs_dir):
         filenames = [os.path.basename(logs_dir)]
         logs_dir = os.path.dirname(logs_dir)
@@ -66,5 +66,5 @@ def evaluation(logs_dir, export_path, path_filtering=False, dk_fragments=None,  
                     with open(txt_path, 'a') as f:
                         f.write(f'{fm};{method_used};{score};{fragments}\n')
             print(fm)
-            export_xes_by_fragments(event_log,fragments,export_path,filename,fm,include_root=True,plot_root=True,pm4py_metrics=False)
+            export_xes_by_fragments(event_log,fragments,export_path,filename,fm,include_root=True,plot_root=True,pm4py_metrics=False, plot_fragments= plot_fragments)
     
