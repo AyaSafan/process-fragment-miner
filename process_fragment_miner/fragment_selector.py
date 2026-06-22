@@ -40,6 +40,10 @@ def _score_trace_set(scores, bitmask, score_agg, alpha):
     """
     Computes the aggregate score for a set of traces and optionally rewards coverage.
 
+    Each candidate subtrace has a raw score from the scorer (e.g. bigram likelihood,
+    dependency product, or Word2Vec similarity). This function combines them into a
+    single aggregate for a state in the DP/beam search.
+
     Args:
         scores (list): List of scores (float) of the chosen traces.
         bitmask (int): Integer bitmask covering the union of event sets in the selected subset.
@@ -74,6 +78,9 @@ def _generate_candidate_state(score, trace, trace_mask, used_mask, trace_list, s
     """
     Attempts to add the given trace to the subset, checking for disjointness.
 
+    Disjointness is checked via bitmask AND: if ``used_mask & trace_mask != 0``
+    the trace overlaps with an already-selected trace and is rejected.
+
     Args:
         score (float): The score of the trace being considered.
         trace (iterable): The trace (event sequence) itself.
@@ -101,7 +108,12 @@ def _generate_candidate_state(score, trace, trace_mask, used_mask, trace_list, s
 def _dp_solver(subtraces, score_agg, alpha, return_details, max_memory_mb):
     """
     Dynamic programming solver for finding the best disjoint subset of traces for maximum score.
-    State is tracked by a bitmask indicating events already used.
+
+    State is tracked by a bitmask of which unique events are covered. For each subtrace,
+    the DP iterates over all existing states and attempts to add it via
+    ``_generate_candidate_state``, which checks disjointness (bitmask AND). Only the best
+    aggregate value per bitmask is kept (``if new_val > dp[new_mask][0]``). At the end, the
+    state with the maximum aggregate value is selected via ``max(dp.values(), key=lambda x: x[0])``.
 
     If memory usage exceeds max_memory_mb, falls back to None (triggers beam search).
 
@@ -185,8 +197,14 @@ def get_best_disjoint_subset(
     method="auto"
 ):
     """
-    Selects the best subset of disjoint traces to maximize an aggregate score, using either
-    dynamic programming (exact, but exponential-time and memory) or beam search (approximate).
+    Selects the best subset of disjoint traces (no overlapping event names) to maximize
+    an aggregate score, using either dynamic programming (exact, but exponential-time and
+    memory) or beam search (approximate).
+
+    Each candidate subtrace carries a raw score from the chosen scorer. The aggregate for
+    a subset is computed by ``_score_trace_set`` as the **sum**, **mean**, or
+    **log-likelihood** of the individual scores, plus an optional **coverage bonus**
+    (``alpha * number_of_unique_events_covered``).
 
     Args:
         subtraces (list): List of (score, trace) tuples; each trace is a list or iterable of events.
