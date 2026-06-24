@@ -28,6 +28,7 @@ def evaluation(
     path_filtering=False,
     methods=("heuristic", "bigram", "similarity"),
     show_fragment_plots=False,
+    split_on_log_move=False,
 ):
     """
     Runs the full PFM evaluation pipeline.
@@ -46,6 +47,9 @@ def evaluation(
         path_filtering (bool): Keep only the most frequent variants (80 % coverage).
         methods (tuple of str): Scoring methods to evaluate.
         show_fragment_plots (bool): Visualise each fragment's process model.
+        split_on_log_move (bool): Passed to projection. If True, split traces
+            at non-fragment event boundaries into separate sublogs.
+            If False, classic projection (one trace per original trace).
     """
     if os.path.isfile(logs_dir):
         filenames = [os.path.basename(logs_dir)]
@@ -117,6 +121,7 @@ def evaluation(
                     compute_metrics=False,
                     show_root_plot=True,
                     show_fragment_plots=show_fragment_plots,
+                    split_on_log_move=split_on_log_move,
                 )
             )
             fragment_trees_by_method[method] = fragment_trees
@@ -124,6 +129,7 @@ def evaluation(
                 event_log, fragments, export_path, filename, method,
                 root_log=root_log,
                 include_root=True,
+                split_on_log_move=split_on_log_move,
             )
         
         if len(fragment_trees_by_method) > 0:
