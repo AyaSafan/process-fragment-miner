@@ -8,7 +8,8 @@ import pm4py
 from pm4py.objects.conversion.process_tree import converter as pt_converter
 from pm4py.convert import convert_to_bpmn
 from pm4py.visualization.bpmn import visualizer as bpmn_visualizer
-from pm4py.discovery import discover_process_tree_inductive
+from pm4py.discovery import discover_process_tree_inductive, discover_heuristics_net
+from pm4py.visualization.heuristics_net import visualizer as hn_visualizer
 from pm4py.objects.log.exporter.xes import exporter as xes_exporter
 from pm4py.algo.filtering.log.attributes import attributes_filter
 from pm4py.objects.log.obj import EventLog, Trace
@@ -428,14 +429,22 @@ def mine_process_tree(event_log, activity_names=None, noise_threshold=0.0, split
 def visualize_process_model(model, event_log=None):
     """
     Converts a ProcessTree to BPMN and displays it.
+    If *event_log* is provided, also shows a heuristics-net view of the log.
 
     Args:
         model: A PM4Py ProcessTree.
-        event_log: Ignored (kept for backward compatibility).
+        event_log (PM4Py EventLog, optional): Used for additional heuristics-net view.
     """
     bpmn_model = convert_to_bpmn(model)
     bpmn_gviz = bpmn_visualizer.apply(bpmn_model)
     bpmn_visualizer.view(bpmn_gviz)
+
+    if event_log is not None:
+        heu_net = discover_heuristics_net(
+            event_log, dependency_threshold=0, and_threshold=0, loop_two_threshold=0,
+        )
+        heu_gviz = hn_visualizer.apply(heu_net)
+        hn_visualizer.view(heu_gviz)
 
 
 # ---------------------------------------------------------------------------
@@ -714,7 +723,6 @@ def export_xes_by_fragments(
 
     for idx, fragment_activities in enumerate(fragments):
         fragment_log = project_log_to_activities(event_log, fragment_activities, split_on_log_move=split_on_log_move)
-        print(f'\nfragment_{idx}: {fragment_activities}')
         xes_exporter.apply(fragment_log, f'{export_path}/xes/{filename}.{idx}.{method_name}.xes.gz')
 
     if root_metrics is not None and mean_fragment_metrics is not None:
