@@ -2,6 +2,7 @@ from typing import List, Dict, Tuple
 from collections import defaultdict
 import numpy as np
 from process_fragment_miner.adapters.word2vec_adapter import Word2VecAdapter
+from process_fragment_miner.utils import project_log_to_activities
 
 
 '''
@@ -9,6 +10,7 @@ Scoring strategies
 - bigram — Laplace-smoothed bigram probability (how likely is this activity sequence given training data?)
 - dependency — product of dependency strengths along the path
 - similarity — average Word2Vec cosine similarity between consecutive activities
+- frequency — how many sublog traces result from projecting the full log onto the fragment
 '''
 
 class BaseScorer:
@@ -147,3 +149,26 @@ class SimilarityScorer(BaseScorer):
 
         scored = [(t, self.score(t)) for t in unique_traces]
         return sorted(scored, key=lambda x: x[1], reverse=True)
+
+
+class FrequencyScorer(BaseScorer):
+    """
+    Scores a fragment by how many sublog traces result from projecting the
+    full event log onto the fragment's activities.  More frequent fragments
+    (those whose activities appear in more traces / more blocks) get higher
+    scores.
+    """
+
+    def __init__(self, event_log, split_on_log_move=True):
+        self._event_log = event_log
+        self._split_on_log_move = split_on_log_move
+        self._cache = {}
+
+    def score(self, trace: List[str]) -> float:
+        key = frozenset(trace)
+        if key not in self._cache:
+            projected = project_log_to_activities(
+                self._event_log, trace, split_on_log_move=self._split_on_log_move,
+            )
+            self._cache[key] = len(projected)
+        return float(self._cache[key])

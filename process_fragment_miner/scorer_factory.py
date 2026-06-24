@@ -2,6 +2,7 @@ from process_fragment_miner.scorer import (
     BigramScorer,
     DependencyScorer,
     SimilarityScorer,
+    FrequencyScorer,
 )
 
 class ScorerFactory:
@@ -17,6 +18,10 @@ class ScorerFactory:
         "similarity": {
             "class": SimilarityScorer,
             "from_miner": {"traces": "get_traces"},
+        },
+        "frequency": {
+            "class": FrequencyScorer,
+            "from_miner": {"event_log": "event_log"},
         },
     }
 

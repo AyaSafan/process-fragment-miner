@@ -26,7 +26,7 @@ def evaluation(
     logs_dir,
     export_path,
     path_filtering=False,
-    methods=("heuristic", "bigram", "similarity"),
+    methods=("heuristic", "bigram", "similarity", "frequency"),
     show_fragment_plots=False,
     split_on_log_move=False,
 ):
@@ -87,7 +87,7 @@ def evaluation(
             )
 
             # Extract top subtraces from the dependency graph
-            subtraces = miner.extract_subtraces(max_depth=1000, min_depth=1, top_k=math.inf)
+            subtraces = miner.extract_subtraces(max_depth=1000, min_depth=2, top_k=math.inf)
 
             # Select best disjoint subset of fragments
             score, fragments, individual_scores, algorithm_used = miner.mine_best_fragments(
