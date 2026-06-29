@@ -172,3 +172,138 @@ class FrequencyScorer(BaseScorer):
             )
             self._cache[key] = len(projected)
         return float(self._cache[key])
+
+
+class NormalizedWeightedScorer(BaseScorer):
+    """
+    Meta-scorer that combines multiple sub-scorers via weighted min-max
+    normalization.  Each sub-scorer is fit on the full event-log traces to
+    determine its scoring range, and individual scores are normalised to
+    [0, 1] before being combined as a weighted sum.
+
+    The *scorers* parameter accepts a list of ``(name_or_instance, weight)``
+    tuples.  *name_or_instance* can be a string (one of the known scorer names)
+    or an already-instantiated ``BaseScorer``.  Typical usage::
+
+        ProcessFragmentMiner(
+            event_log=log,
+            scorer="weighted",
+            scorer_kwargs={
+                "scorers": [("heuristic", 0.5), ("frequency", 0.5)],
+            },
+        )
+    """
+
+    def __init__(
+        self,
+        event_log,
+        traces: List[List[str]],
+        dependencies: Dict[str, Dict[str, float]],
+        scorers: List[Tuple] = None,
+    ):
+        """
+        Args:
+            event_log: Full PM4Py EventLog (passed by ScorerFactory from the miner).
+            traces: All full traces as List[List[str]] (from miner.get_traces()).
+            dependencies: Dependency matrix (from miner.dependencies).
+            scorers: List of (name_or_instance, weight) tuples.
+                     String names are resolved internally; existing BaseScorer
+                     instances are used as-is.
+        """
+        if scorers is None:
+            scorers = [("heuristic", 1.0)]
+
+        # Resolve string names to BaseScorer instances.
+        self._sub_scorers = []
+        self._weights = []
+        for name, weight in scorers:
+            self._weights.append(weight)
+            if isinstance(name, BaseScorer):
+                self._sub_scorers.append(name)
+            else:
+                self._sub_scorers.append(self._resolve_sub_scorer(name, event_log, traces, dependencies))
+
+        total_w = sum(abs(w) for w in self._weights)
+        if total_w > 0:
+            self._weights = [w / total_w for w in self._weights]
+
+        # Fit: score every full trace with every sub-scorer to obtain
+        # per-scorer min/max for min-max normalisation.
+        self._mins = [float("inf")] * len(self._sub_scorers)
+        self._maxs = [float("-inf")] * len(self._sub_scorers)
+        self._fitted = False
+        self._fit(traces)
+
+    # ------------------------------------------------------------------
+    # Internal sub-scorer resolution
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _resolve_sub_scorer(name, event_log, traces, dependencies):
+        """Resolve a scorer name to a BaseScorer instance."""
+        name = name.lower()
+        if name == "heuristic":
+            return DependencyScorer(dependency_matrix=dependencies)
+        elif name == "dependency":
+            return DependencyScorer(dependency_matrix=dependencies)
+        elif name == "bigram":
+            return BigramScorer(traces=traces)
+        elif name == "similarity":
+            return SimilarityScorer(traces=traces)
+        elif name == "frequency":
+            return FrequencyScorer(event_log=event_log)
+        else:
+            raise ValueError(
+                f"Unknown sub-scorer '{name}' in NormalizedWeightedScorer. "
+                f"Known: heuristic, bigram, similarity, frequency"
+            )
+
+    # ------------------------------------------------------------------
+    # Fit: compute per-scorer min/max on the full trace set
+    # ------------------------------------------------------------------
+    def _fit(self, traces: List[List[str]]):
+        """Compute normalisation bounds by scoring every full trace."""
+        for i, scorer in enumerate(self._sub_scorers):
+            raw_scores = []
+            for trace in traces:
+                s = scorer.score(trace)
+                if s != float("-inf"):
+                    raw_scores.append(s)
+            if raw_scores:
+                self._mins[i] = min(raw_scores)
+                self._maxs[i] = max(raw_scores)
+            else:
+                self._mins[i] = 0.0
+                self._maxs[i] = 1.0
+        self._fitted = True
+
+    # ------------------------------------------------------------------
+    # Normalisation helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _min_max_normalize(value, lo, hi):
+        """Min-max normalise *value* to [0, 1] given observed extents *lo*, *hi*."""
+        if hi <= lo:
+            return 0.5
+        clipped = max(lo, min(value, hi))
+        return (clipped - lo) / (hi - lo)
+
+    def score(self, trace: List[str]) -> float:
+        """
+        Return the weighted sum of min-max normalised sub-scorer scores.
+
+        Args:
+            trace: A list of activity labels to score.
+
+        Returns:
+            float in [-inf, inf], typically in [0, 1] per sub-scorer range.
+        """
+        total = 0.0
+        for scorer, weight, mn, mx in zip(
+            self._sub_scorers, self._weights, self._mins, self._maxs
+        ):
+            raw = scorer.score(trace)
+            if raw == float("-inf"):
+                return float("-inf")
+            normalised = self._min_max_normalize(raw, mn, mx)
+            total += weight * normalised
+        return total

@@ -3,6 +3,7 @@ from process_fragment_miner.scorer import (
     DependencyScorer,
     SimilarityScorer,
     FrequencyScorer,
+    NormalizedWeightedScorer,
 )
 
 class ScorerFactory:
@@ -22,6 +23,14 @@ class ScorerFactory:
         "frequency": {
             "class": FrequencyScorer,
             "from_miner": {"event_log": "event_log"},
+        },
+        "weighted": {
+            "class": NormalizedWeightedScorer,
+            "from_miner": {
+                "event_log": "event_log",
+                "traces": "get_traces",
+                "dependencies": "dependencies",
+            },
         },
     }
 

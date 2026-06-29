@@ -29,6 +29,7 @@ def evaluation(
     methods=("heuristic", "bigram", "similarity", "frequency"),
     show_fragment_plots=False,
     split_on_log_move=False,
+    scorer_kwargs=None,
 ):
     """
     Runs the full PFM evaluation pipeline.
@@ -50,6 +51,10 @@ def evaluation(
         split_on_log_move (bool): Passed to projection. If True, split traces
             at non-fragment event boundaries into separate sublogs.
             If False, classic projection (one trace per original trace).
+        scorer_kwargs (dict or None): Optional keyword arguments forwarded to
+            ProcessFragmentMiner for each method.  For example, the ``"weighted"``
+            scorer uses ``scorer_kwargs={"scorers": [("frequency", 0.5), ("heuristic", 0.5)]}``.
+            If None, no extra arguments are passed.
     """
     if os.path.isfile(logs_dir):
         filenames = [os.path.basename(logs_dir)]
@@ -81,9 +86,11 @@ def evaluation(
         scoring_metrics_path = f'{export_path}/{filename}.pfm.metrics.txt'
 
         for method in methods:
+            kw = {} if scorer_kwargs is None else scorer_kwargs
             miner = ProcessFragmentMiner(
                 event_log=event_log_no_sentinels,
                 scorer=method,
+                scorer_kwargs=kw,
             )
 
             # Extract top subtraces from the dependency graph
