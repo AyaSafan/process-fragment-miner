@@ -46,8 +46,8 @@ def evaluation(
     export_path,
     path_filtering=False,
     methods=("heuristic", "bigram", "similarity", "frequency"),
-    show_fragment_plots=True,
     scorer_kwargs=None,
+    noise_threshold = 0.2
 ):
     """
     Runs the full PFM evaluation pipeline.
@@ -69,8 +69,6 @@ def evaluation(
             metrics at ``{export_path}/{log}.pfm.metrics.txt``).
         path_filtering (bool): Keep only the most frequent variants (80 % coverage).
         methods (tuple of str): Scoring methods to evaluate.
-        show_fragment_plots (bool): Visualise each fragment's process model
-            (default ``True``).  Set to ``False`` to suppress per-fragment plots.
         scorer_kwargs (dict or None): Optional keyword arguments forwarded to
             ProcessFragmentMiner for each method.  For example, the ``"weighted"``
             scorer uses ``scorer_kwargs={"scorers": [("frequency", 0.5), ("heuristic", 0.5)]}``.
@@ -153,6 +151,7 @@ def evaluation(
                 compute_metrics=True,
                 show_root_plot=False,
                 show_fragment_plots=False,
+                noise_threshold= noise_threshold
             )
             (root_log, root_metrics, mean_metrics, _, fragment_trees,
              root_model, fragment_models, fragment_metrics_list) = out

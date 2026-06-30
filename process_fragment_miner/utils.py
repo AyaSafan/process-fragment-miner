@@ -354,7 +354,7 @@ def get_fragment_first_last_events(fragment_log, include_end=True):
 #  Core mining — projection + inductive miner
 # ---------------------------------------------------------------------------
 
-def mine_process_tree(event_log, activity_names=None, noise_threshold=0.0, miner="inductive"):
+def mine_process_tree(event_log, noise_threshold = 0.2, activity_names=None ):
     """
     Core mining step: optionally **project** the log to *activity_names*,
     then run the specified miner to obtain a process model.
@@ -367,12 +367,7 @@ def mine_process_tree(event_log, activity_names=None, noise_threshold=0.0, miner
         activity_names (list of str, optional): If given, the log is first
             projected to these activities (fragment projection).
         noise_threshold (float): Noise threshold (only used by the inductive miner).
-        miner (str or callable): Miner to use. Supported strings:
-            ``"inductive"`` (default) — returns a ProcessTree;
-            ``"alpha"`` — returns a PetriNet tuple ``(net, initial_marking, final_marking)``;
-            ``"heuristics"`` — returns a HeuristicsNet.
-            Alternatively, a callable ``(event_log) -> model`` for full control.
-
+        
     Returns:
         tuple: ``(model, projected_log)`` — the model type depends on the miner.
     """
@@ -381,19 +376,8 @@ def mine_process_tree(event_log, activity_names=None, noise_threshold=0.0, miner
     else:
         projected_log = event_log
 
-    if callable(miner):
-        model = miner(projected_log)
-    elif miner == "inductive":
-        model = discover_process_tree_inductive(projected_log, noise_threshold=noise_threshold)
-    elif miner == "alpha":
-        model = discover_petri_net_alpha(projected_log)
-    elif miner == "heuristics":
-        model = discover_heuristics_net(
-            projected_log, dependency_threshold=0, and_threshold=0, loop_two_threshold=0,
-        )
-    else:
-        raise ValueError(f"Unknown miner: {miner!r}. Use 'inductive', 'alpha', 'heuristics', or a callable.")
-
+    model = discover_process_tree_inductive(projected_log, noise_threshold=noise_threshold)
+    
     return model, projected_log
 
 
@@ -442,8 +426,7 @@ def visualize_process_model(model, event_log=None):
 def mine_and_visualize_model(
     event_log,
     activity_names=None,
-    noise_threshold=0.0,
-    miner="inductive",
+    noise_threshold=0.2,
     return_process_tree=False,
     show_plots=True,
     relabel_fragments=False,
@@ -468,7 +451,7 @@ def mine_and_visualize_model(
             ``(event_log, fragment_mapping?)``.
     """
     model, projected_log = mine_process_tree(
-        event_log, activity_names=activity_names, noise_threshold=noise_threshold, miner=miner,
+        event_log, activity_names=activity_names, noise_threshold=noise_threshold,
     )
 
     result = ()
@@ -494,8 +477,7 @@ def mine_and_visualize_model(
 def mine_fragment_subprocess(
     event_log,
     fragment_activities,
-    noise_threshold=0.0,
-    miner="inductive",
+    noise_threshold=0.2,
     include_end_events=True,
     compute_metrics=True,
     show_plots=False,
@@ -525,7 +507,7 @@ def mine_fragment_subprocess(
     """
     # --- 1. Projection + 2. Mine (shared core) ---
     model, fragment_log = mine_process_tree(
-        event_log, activity_names=fragment_activities, noise_threshold=noise_threshold, miner=miner,
+        event_log, activity_names=fragment_activities, noise_threshold=noise_threshold, 
     )
 
     # --- 3. Quality metrics ---
@@ -558,10 +540,7 @@ def mine_all_fragment_models_and_root(
     include_end_events=True,
     compute_metrics=True,
     compute_fragment_trees=True,
-    subprocess_noise_threshold=0.0,
-    root_noise_threshold=0.0,
-    subprocess_miner="inductive",
-    root_miner="inductive",
+    noise_threshold=0.2,
     show_fragment_plots=False,
     show_root_plot=True,
 ):
@@ -583,12 +562,7 @@ def mine_all_fragment_models_and_root(
         include_end_events (bool): Whether to use end events in the root log.
         compute_metrics (bool): Whether to compute fitness / precision / F1 / CFC.
         compute_fragment_trees (bool): Whether to return the fragment process trees.
-        subprocess_noise_threshold (float): Noise threshold for fragment models.
-        root_noise_threshold (float): Noise threshold for the root model.
-        subprocess_miner (str or callable): Miner for fragment subprocesses
-            (default ``"inductive"``).
-        root_miner (str or callable): Miner for the root model
-            (default ``"inductive"``).
+        noise_threshold (float): Noise threshold.
         show_fragment_plots (bool): Visualise each fragment model.
         show_root_plot (bool): Visualise the root model.
 
@@ -614,8 +588,7 @@ def mine_all_fragment_models_and_root(
 
         result = mine_fragment_subprocess(
             event_log, fragment_activities,
-            noise_threshold=subprocess_noise_threshold,
-            miner=subprocess_miner,
+            noise_threshold=noise_threshold,
             include_end_events=include_end_events,
             compute_metrics=compute_metrics,
             show_plots=show_fragment_plots,
@@ -647,7 +620,7 @@ def mine_all_fragment_models_and_root(
     # --- 3. Mine root model ---
     root_activity_names = list(get_unique_activities(root_log))
     root_model, root_log = mine_process_tree(
-        root_log, activity_names=root_activity_names, noise_threshold=root_noise_threshold, miner=root_miner,
+        root_log, activity_names=root_activity_names, noise_threshold=noise_threshold,
     )
 
     # Relabel fragments to contiguous indices (only for ProcessTree models)
