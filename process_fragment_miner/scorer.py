@@ -159,17 +159,14 @@ class FrequencyScorer(BaseScorer):
     scores.
     """
 
-    def __init__(self, event_log, split_on_log_move=True):
+    def __init__(self, event_log):
         self._event_log = event_log
-        self._split_on_log_move = split_on_log_move
         self._cache = {}
 
     def score(self, trace: List[str]) -> float:
         key = frozenset(trace)
         if key not in self._cache:
-            projected = project_log_to_activities(
-                self._event_log, trace, split_on_log_move=self._split_on_log_move,
-            )
+            projected = project_log_to_activities(self._event_log, trace)
             self._cache[key] = len(projected)
         return float(self._cache[key])
 

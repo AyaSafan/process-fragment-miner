@@ -7,7 +7,7 @@ import pandas as pd
 import pm4py
 from pm4py.algo.discovery.inductive import algorithm as inductive_miner
 from pm4py.objects.conversion.process_tree import converter as pt_converter
-from pm4py.convert import convert_to_bpmn
+from pm4py.convert import convert_to_bpmn, convert_to_petri_net
 from pm4py.visualization.bpmn import visualizer as bpmn_visualizer
 from pm4py.visualization.petri_net import visualizer as pn_visualizer
 from pm4py.discovery import discover_process_tree_inductive, discover_heuristics_net, discover_petri_net_alpha
@@ -101,6 +101,8 @@ def calculate_metrics(model, event_log):
         net, initial_marking, final_marking = model
     else:
         raise TypeError(f"Expected a ProcessTree or (PetriNet, marking, marking) tuple, got {type(model)}")
+    
+    # Align-ETConformance metrics
     log_fitness = pm4py.fitness_alignments(event_log, net, initial_marking, final_marking, multi_processing=False)['log_fitness']
     precision = pm4py.precision_alignments(event_log, net, initial_marking, final_marking, multi_processing=False)
 
@@ -591,14 +593,20 @@ def mine_all_fragment_models_and_root(
         show_root_plot (bool): Visualise the root model.
 
     Returns:
-        tuple: ``(root_log, root_metrics, mean_fragment_metrics, fragment_mapping, fragment_trees)``
-            — returns ``(root_log, None, None, fragment_mapping, fragment_trees)`` when
-            *compute_metrics* is False.
-            fragment_trees`` is a list of tuples ``(fragment_index, model_string)`` for each fragment.
+        tuple:
+            ``(root_log, root_metrics, mean_fragment_metrics, fragment_mapping,
+              fragment_trees, root_model, fragment_models, fragment_metrics)``
+            — metrics are ``None`` when *compute_metrics* is False.
+            ``fragment_trees`` is a list of ``(fragment_index, model_string)`` tuples.
+            ``root_model`` is the root process model object.
+            ``fragment_models`` is a list of per-fragment process model objects.
+            ``fragment_metrics`` is a list of per-fragment metric dicts (or ``None`` entries).
             
     """
     fragment_properties_list = []
     fragment_trees = []
+    fragment_models = []
+    fragment_metrics_list = []
 
     # --- 1. Mine each fragment subprocess ---
     for idx, fragment_activities in enumerate(fragments):
@@ -613,11 +621,11 @@ def mine_all_fragment_models_and_root(
             show_plots=show_fragment_plots,
         )
 
-        if compute_metrics and result["metrics"] is not None:
-            print(f"  {group_name} metrics: {result['metrics']}")
+        model = result["model"]
+        fragment_models.append(model)
+        fragment_metrics_list.append(result.get("metrics"))
 
         if compute_fragment_trees:
-            model = result["model"]
             model_str = model.to_string() if hasattr(model, 'to_string') else str(model)
             fragment_trees.append((idx, model_str))
             fragment_properties_list.append({
@@ -654,11 +662,9 @@ def mine_all_fragment_models_and_root(
     if compute_metrics:
         root_metrics = calculate_metrics(root_model, root_log)
         mean_fragment_metrics = calculate_mean_quality_measures(fragment_properties_list)
-        print(f"  Root model metrics: {root_metrics}")
-        print(f"  Mean fragment metrics: {mean_fragment_metrics}")
-        return root_log, root_metrics, mean_fragment_metrics, fragment_mapping, fragment_trees
+        return root_log, root_metrics, mean_fragment_metrics, fragment_mapping, fragment_trees, root_model, fragment_models, fragment_metrics_list
 
-    return root_log, None, None, fragment_mapping, fragment_trees
+    return root_log, None, None, fragment_mapping, fragment_trees, root_model, fragment_models, fragment_metrics_list
 
 
 # ---------------------------------------------------------------------------
@@ -713,13 +719,77 @@ def export_xes_by_fragments(
 
     for idx, fragment_activities in enumerate(fragments):
         fragment_log = project_log_to_activities(event_log, fragment_activities)
-        print(f'\nfragment_{idx}: {fragment_activities}')
         xes_exporter.apply(fragment_log, f'{export_path}/xes/{filename}.{idx}.{method_name}.xes.gz')
 
     if root_metrics is not None and mean_fragment_metrics is not None:
         metrics_path = f'{export_path}/{filename}.pm4py.metrics.txt'
         with open(metrics_path, 'a') as f:
             f.write(f'{method_name};{root_metrics};{mean_fragment_metrics}\n')
+
+
+# ---------------------------------------------------------------------------
+#  PNML export — persist models as Petri-net PNML files
+# ---------------------------------------------------------------------------
+
+def save_model_to_pnml(model, file_path):
+    """
+    Saves a process model to a ``.pnml`` file on disk.
+    Supports ProcessTree, PetriNet tuple ``(net, im, fm)``, and HeuristicsNet.
+
+    The resulting file can be loaded back with::
+
+        import pm4py
+        net, im, fm = pm4py.read_pnml('<PATH_TO_MODEL>')
+
+    or equivalently::
+
+        from pm4py.objects.petri_net.importer import importer as pnml
+        net, im, fm = pnml.import_net('<PATH_TO_MODEL>')
+
+    Args:
+        model: A PM4Py ProcessTree, a ``(PetriNet, Marking, Marking)`` tuple,
+            or a HeuristicsNet.
+        file_path (str): Destination path for the ``.pnml`` file.
+    """
+    if hasattr(model, 'children') or hasattr(model, 'dependency_matrix'):
+        # ProcessTree or HeuristicsNet → convert to Petri net
+        net, initial_marking, final_marking = convert_to_petri_net(model)
+    elif isinstance(model, tuple) and len(model) == 3:
+        net, initial_marking, final_marking = model
+    else:
+        raise TypeError(f"Cannot save model of type {type(model)} to PNML. "
+                        "Supported types: ProcessTree, (PetriNet, Marking, Marking), HeuristicsNet.")
+    pm4py.write_pnml(net, initial_marking, final_marking, file_path)
+
+
+def export_models_to_pnml(root_model, fragment_models, export_path, filename, method):
+    """
+    Saves root and fragment process models as PNML files.
+
+    Files are written to ``{export_path}/pnml/`` with the naming scheme::
+
+        {export_path}/pnml/{filename}.{idx}.{method}.pnml      # fragment models
+        {export_path}/pnml/{filename}.root.{method}.pnml        # root model
+
+    Args:
+        root_model: The root process model (ProcessTree, PetriNet tuple, etc.).
+        fragment_models (list): List of per-fragment process model objects.
+        export_path (str): Base export directory (a ``pnml/`` subdirectory is
+            created inside it).
+        filename (str): Log filename stem (e.g. ``BPIC12.xes.gz``).
+        method (str): Scorer / method identifier (e.g. ``"bigram"``).
+    """
+    pnml_dir = os.path.join(export_path, 'pnml')
+    os.makedirs(pnml_dir, exist_ok=True)
+
+    for idx, model in enumerate(fragment_models):
+        if model is not None:
+            model_path = os.path.join(pnml_dir, f'{filename}.{idx}.{method}.pnml')
+            save_model_to_pnml(model, model_path)
+
+    if root_model is not None:
+        root_path = os.path.join(pnml_dir, f'{filename}.root.{method}.pnml')
+        save_model_to_pnml(root_model, root_path)
 
 
 # ---------------------------------------------------------------------------
