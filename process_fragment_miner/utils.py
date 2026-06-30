@@ -369,16 +369,16 @@ def mine_process_tree(event_log, noise_threshold = 0.2, activity_names=None ):
         noise_threshold (float): Noise threshold (only used by the inductive miner).
         
     Returns:
-        tuple: ``(model, projected_log)`` — the model type depends on the miner.
+        tuple: ``(process_tree, projected_log)`` 
     """
     if activity_names is not None:
         projected_log = project_log_to_activities(event_log, activity_names)
     else:
         projected_log = event_log
 
-    model = discover_process_tree_inductive(projected_log, noise_threshold=noise_threshold)
+    process_tree = discover_process_tree_inductive(projected_log, noise_threshold=noise_threshold)
     
-    return model, projected_log
+    return process_tree, projected_log
 
 
 # ---------------------------------------------------------------------------
