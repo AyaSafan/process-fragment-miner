@@ -146,41 +146,24 @@ def calculate_mean_quality_measures(fragment_properties_list):
 #  Event log projection — reducing the log to one fragment's activities
 # ---------------------------------------------------------------------------
 
-def project_log_to_activities(event_log, activity_names):
+def filter_activities(event_log, activity_names, keep=True):
     """
-    Reduces an event log to only the traces/events whose activity name
-    appears in *activity_names* (the **projection** step for a fragment).
+    Keep or drop events whose activity name appears in *activity_names*.
 
-    Conceptually:  L ↦ L↓_{A_f}   (keep only events whose label ∈ A_f)
+    When ``keep=True`` (default) this is the fragment projection L ↦ L↓_{A_f}.
+    When ``keep=False`` it removes the named activities.
 
     Args:
         event_log: PM4Py EventLog.
-        activity_names (list of str): Activity labels to keep.
+        activity_names (list of str): Activity labels to filter on.
+        keep (bool): If True keep matching events; if False drop them.
 
     Returns:
-        PM4Py EventLog containing only events with matching labels.
+        PM4Py EventLog with the filter applied.
     """
     return attributes_filter.apply_events(
         event_log,
-        parameters={"attribute_key": "concept:name", "positive": True},
-        values=activity_names,
-    )
-
-
-def remove_activities(event_log, activity_names):
-    """
-    Drops all events whose activity name appears in *activity_names*.
-
-    Args:
-        event_log: PM4Py EventLog.
-        activity_names (list of str): Activity labels to remove.
-
-    Returns:
-        PM4Py EventLog with those events removed.
-    """
-    return attributes_filter.apply_events(
-        event_log,
-        parameters={"attribute_key": "concept:name", "positive": False},
+        parameters={"attribute_key": "concept:name", "positive": keep},
         values=activity_names,
     )
 
@@ -372,7 +355,7 @@ def mine_process_tree(event_log, noise_threshold = 0.2, activity_names=None ):
         tuple: ``(process_tree, projected_log)`` 
     """
     if activity_names is not None:
-        projected_log = project_log_to_activities(event_log, activity_names)
+        projected_log = filter_activities(event_log, activity_names)
     else:
         projected_log = event_log
 
@@ -613,7 +596,7 @@ def mine_all_fragment_models_and_root(
     root_log = build_root_abstraction(fragment_properties_list)
 
     # Merge with original START / END events if present
-    start_end_log = project_log_to_activities(event_log, ['START', 'END'])
+    start_end_log = filter_activities(event_log, ['START', 'END'])
     if len(start_end_log) != 0:
         root_log = merge_event_logs_by_trace_id(root_log, start_end_log)
 
@@ -635,9 +618,13 @@ def mine_all_fragment_models_and_root(
     if compute_metrics:
         root_metrics = calculate_metrics(root_model, root_log)
         mean_fragment_metrics = calculate_mean_quality_measures(fragment_properties_list)
-        return root_log, root_metrics, mean_fragment_metrics, fragment_mapping, fragment_trees, root_model, fragment_models, fragment_metrics_list
+    else:
+        root_metrics = None
+        mean_fragment_metrics = None
 
-    return root_log, None, None, fragment_mapping, fragment_trees, root_model, fragment_models, fragment_metrics_list
+    return (root_log, root_metrics, mean_fragment_metrics,
+            fragment_mapping, fragment_trees, root_model,
+            fragment_models, fragment_metrics_list)
 
 
 # ---------------------------------------------------------------------------
@@ -651,13 +638,10 @@ def export_xes_by_fragments(
     filename,
     method_name,
     root_log=None,
-    root_metrics=None,
-    mean_fragment_metrics=None,
     include_root=True,
 ):
     """
-    Exports fragment sub-logs + optional root log as XES files, and
-    optionally saves PM4Py quality metrics to ``.pm4py.metrics.txt``.
+    Exports fragment sub-logs + optional root log as XES files.
 
     .. note::
 
@@ -665,12 +649,11 @@ def export_xes_by_fragments(
         :func:`mine_all_fragment_models_and_root` first and pass the
         results here.  Example::
 
-            root_log, root_metrics, mean_metrics, _ = \\
+            root_log, root_metrics, mean_metrics, _, fragment_trees, \\
+                root_model, fragment_models, fragment_metrics_list = \\
                 mine_all_fragment_models_and_root(event_log, fragments, ...)
             export_xes_by_fragments(event_log, fragments, export_path, filename,
-                                    method, root_log=root_log,
-                                    root_metrics=root_metrics,
-                                    mean_fragment_metrics=mean_metrics)
+                                    method, root_log=root_log)
 
     Args:
         event_log: Full PM4Py EventLog.
@@ -680,8 +663,6 @@ def export_xes_by_fragments(
         method_name (str): Scorer / method identifier (e.g. ``"bigram"``).
         root_log (PM4Py EventLog, optional): Pre-mined root log.  Required
             for ``include_root=True``.
-        root_metrics (dict, optional): Pre-computed root quality metrics.
-        mean_fragment_metrics (dict, optional): Pre-computed mean fragment metrics.
         include_root (bool): Export the root-log XES file.
     """
     if include_root:
@@ -691,13 +672,8 @@ def export_xes_by_fragments(
         xes_exporter.apply(root_log, f'{export_path}/xes/{filename}.root.{method_name}.xes.gz')
 
     for idx, fragment_activities in enumerate(fragments):
-        fragment_log = project_log_to_activities(event_log, fragment_activities)
+        fragment_log = filter_activities(event_log, fragment_activities)
         xes_exporter.apply(fragment_log, f'{export_path}/xes/{filename}.{idx}.{method_name}.xes.gz')
-
-    if root_metrics is not None and mean_fragment_metrics is not None:
-        metrics_path = f'{export_path}/{filename}.pm4py.metrics.txt'
-        with open(metrics_path, 'a') as f:
-            f.write(f'{method_name};{root_metrics};{mean_fragment_metrics}\n')
 
 
 # ---------------------------------------------------------------------------

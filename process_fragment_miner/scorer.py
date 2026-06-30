@@ -2,7 +2,7 @@ from typing import List, Dict, Tuple
 from collections import defaultdict
 import numpy as np
 from process_fragment_miner.adapters.word2vec_adapter import Word2VecAdapter
-from process_fragment_miner.utils import project_log_to_activities
+from process_fragment_miner.utils import filter_activities
 
 
 '''
@@ -166,7 +166,7 @@ class FrequencyScorer(BaseScorer):
     def score(self, trace: List[str]) -> float:
         key = frozenset(trace)
         if key not in self._cache:
-            projected = project_log_to_activities(self._event_log, trace)
+            projected = filter_activities(self._event_log, trace)
             self._cache[key] = len(projected)
         return float(self._cache[key])
 

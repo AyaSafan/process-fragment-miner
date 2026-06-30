@@ -18,9 +18,32 @@ from process_fragment_miner.utils import (
     export_models_to_pnml,
     export_xes_by_fragments,
     mine_all_fragment_models_and_root,
-    remove_activities,
+    filter_activities,
     save_process_trees,
+    visualize_process_model,
 )
+
+
+def _choose_algorithm(filename):
+    """Return ``"beam"`` for BPIC15 logs 2-5, ``"auto"`` otherwise."""
+    bpic15 = {"BPIC15_2f.xes.gz", "BPIC15_3f.xes.gz",
+              "BPIC15_4f.xes.gz", "BPIC15_5f.xes.gz"}
+    return "beam" if filename in bpic15 else "auto"
+
+
+def _filter_log_by_coverage(event_log, coverage=0.8):
+    """Keep only variants covering the top *coverage* fraction of cases."""
+    variants = get_variants(event_log)
+    variants_sorted = get_variants_sorted_by_count(variants)
+    total_cases = sum(count for _, count in variants_sorted)
+    cumulative = 0
+    selected = []
+    for variant, count in variants_sorted:
+        cumulative += count
+        selected.append(variant)
+        if cumulative / total_cases >= coverage:
+            break
+    return variants_filter.apply(event_log, selected)
 
 
 def _html_or_print():
@@ -47,7 +70,9 @@ def evaluation(
     path_filtering=False,
     methods=("heuristic", "bigram", "similarity", "frequency"),
     scorer_kwargs=None,
-    noise_threshold = 0.2
+    noise_threshold=0.2,
+    show_fragment_plots=True,
+    show_root_plot=False,
 ):
     """
     Runs the full PFM evaluation pipeline.
@@ -73,6 +98,9 @@ def evaluation(
             ProcessFragmentMiner for each method.  For example, the ``"weighted"``
             scorer uses ``scorer_kwargs={"scorers": [("frequency", 0.5), ("heuristic", 0.5)]}``.
             If None, no extra arguments are passed.
+        noise_threshold (float): Threshold for noise filtering (default 0.2).
+        show_fragment_plots (bool): Whether to visualise fragment models.
+        show_root_plot (bool): Whether to visualise the root model.
     """
     html, txt = _html_or_print()
 
@@ -87,20 +115,10 @@ def evaluation(
     for filename in filenames:
         event_log = load_event_log(os.path.join(logs_dir, filename))
         if path_filtering:
-            variants = get_variants(event_log)
-            variants_sorted = get_variants_sorted_by_count(variants)
-            total_cases = sum(count for _, count in variants_sorted)
-            cumulative = 0
-            selected_variants = []
-            for variant, count in variants_sorted:
-                cumulative += count
-                selected_variants.append(variant)
-                if cumulative / total_cases >= 0.8:
-                    break
-            event_log = variants_filter.apply(event_log, selected_variants)
+            event_log = _filter_log_by_coverage(event_log)
 
         # Remove START/END sentinel events before fragment mining
-        event_log_no_sentinels = remove_activities(event_log, ['START', 'END'])
+        event_log_no_sentinels = filter_activities(event_log, ['START', 'END'], keep=False)
 
         fragment_trees_by_method = {}
         scoring_metrics_path = f'{export_path}/{filename}.pfm.metrics.txt'
@@ -123,15 +141,7 @@ def evaluation(
                 alpha=0.0,
                 beam_size=50,
                 max_memory_mb=10000,
-                method="auto"
-                if filename
-                not in [
-                    "BPIC15_2f.xes.gz",
-                    "BPIC15_3f.xes.gz",
-                    "BPIC15_4f.xes.gz",
-                    "BPIC15_5f.xes.gz",
-                ]
-                else "beam",
+                method=_choose_algorithm(filename),
                 return_details=True,
                 ensure_coverage=True,
             )
@@ -149,9 +159,9 @@ def evaluation(
                 event_log, fragments,
                 include_end_events=True,
                 compute_metrics=True,
-                show_root_plot=False,
-                show_fragment_plots=False,
-                noise_threshold= noise_threshold
+                show_root_plot=show_root_plot,
+                show_fragment_plots=show_fragment_plots,
+                noise_threshold=noise_threshold,
             )
             (root_log, root_metrics, mean_metrics, _, fragment_trees,
              root_model, fragment_models, fragment_metrics_list) = out
@@ -169,7 +179,6 @@ def evaluation(
                     html(f'<br><b>Metrics:</b> {_fmt_metrics(m)}')
                     txt(f'    Metrics: {_fmt_metrics(m)}')
 
-                from process_fragment_miner.utils import visualize_process_model
                 visualize_process_model(fragment_models[idx])
 
             if root_metrics is not None:
