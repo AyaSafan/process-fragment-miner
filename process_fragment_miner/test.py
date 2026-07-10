@@ -71,8 +71,9 @@ def evaluation(
     methods=("heuristic", "bigram", "similarity", "frequency"),
     scorer_kwargs=None,
     noise_threshold=0.2,
+    max_depth=1000,
     show_fragment_plots=True,
-    show_root_plot=False,
+    show_root_plot=True,
 ):
     """
     Runs the full PFM evaluation pipeline.
@@ -132,7 +133,7 @@ def evaluation(
             )
 
             # Extract top subtraces from the dependency graph
-            subtraces = miner.extract_subtraces(max_depth=1000, min_depth=2, top_k=math.inf)
+            subtraces = miner.extract_subtraces(max_depth=max_depth, min_depth=2, top_k=math.inf)
 
             # Select best disjoint subset of fragments
             score, fragments, individual_scores, algorithm_used = miner.mine_best_fragments(
@@ -159,8 +160,8 @@ def evaluation(
                 event_log, fragments,
                 include_end_events=True,
                 compute_metrics=True,
-                show_root_plot=show_root_plot,
-                show_fragment_plots=show_fragment_plots,
+                show_root_plot=False,  # evaluation() displays root below
+                show_fragment_plots=False,  # evaluation() visualises fragments below
                 noise_threshold=noise_threshold,
             )
             (root_log, root_metrics, mean_metrics, _, fragment_trees,
@@ -181,10 +182,6 @@ def evaluation(
 
                 visualize_process_model(fragment_models[idx])
 
-            if root_metrics is not None:
-                rm = _fmt_metrics(root_metrics)
-                html(f'<h3>Root Model</h3><b>Metrics:</b> {rm}')
-                txt(f'\n  Root model metrics: {rm}')
             if mean_metrics is not None:
                 mm = (f'fi={mean_metrics["fi_mean"]:.4f}  pr={mean_metrics["pr_mean"]:.4f}  '
                       f'F1={mean_metrics["F1_mean"]:.4f}  CFC={mean_metrics["CFC_mean"]:.1f}  '
