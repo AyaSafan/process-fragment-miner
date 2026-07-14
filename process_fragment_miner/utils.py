@@ -11,6 +11,7 @@ from pm4py.convert import convert_to_bpmn, convert_to_petri_net
 from pm4py.visualization.bpmn import visualizer as bpmn_visualizer
 from pm4py.visualization.petri_net import visualizer as pn_visualizer
 from pm4py.discovery import discover_process_tree_inductive, discover_heuristics_net, discover_petri_net_alpha
+from pm4py.algo.discovery.split_miner import algorithm as split_miner
 from pm4py.objects.log.exporter.xes import exporter as xes_exporter
 from pm4py.algo.filtering.log.attributes import attributes_filter
 from pm4py.objects.log.obj import EventLog, Trace
@@ -89,18 +90,20 @@ def calculate_metrics(model, event_log):
     with respect to an event log.
 
     Args:
-        model: A PM4Py ProcessTree, or a PetriNet tuple ``(net, initial_marking, final_marking)``.
+        model: A PM4Py ProcessTree, BPMN, or a PetriNet tuple ``(net, initial_marking, final_marking)``.
         event_log: PM4Py EventLog object.
 
     Returns:
         dict: {"fi" (fitness), "pr" (precision), "F1", "CFC", "size"}.
     """
-    if hasattr(model, 'children'):
+    if hasattr(model, 'get_nodes'):
+        net, initial_marking, final_marking = convert_to_petri_net(model)
+    elif hasattr(model, 'children'):
         net, initial_marking, final_marking = pt_converter.apply(model)
     elif isinstance(model, tuple) and len(model) == 3:
         net, initial_marking, final_marking = model
     else:
-        raise TypeError(f"Expected a ProcessTree or (PetriNet, marking, marking) tuple, got {type(model)}")
+        raise TypeError(f"Expected a ProcessTree, BPMN, or (PetriNet, marking, marking) tuple, got {type(model)}")
     
     # Align-ETConformance metrics
     log_fitness = pm4py.fitness_alignments(event_log, net, initial_marking, final_marking, multi_processing=False)['log_fitness']
@@ -337,31 +340,33 @@ def get_fragment_first_last_events(fragment_log, include_end=True):
 #  Core mining — projection + inductive miner
 # ---------------------------------------------------------------------------
 
-def mine_process_tree(event_log, noise_threshold = 0.2, activity_names=None ):
+def mine_process_tree(event_log, noise_threshold=0.2, activity_names=None, miner="inductive"):
     """
     Core mining step: optionally **project** the log to *activity_names*,
     then run the specified miner to obtain a process model.
-
-    This is the shared kernel used by :func:`mine_fragment_subprocess`,
-    :func:`mine_and_visualize_model`, and the root-model pipeline.
 
     Args:
         event_log: PM4Py EventLog.
         activity_names (list of str, optional): If given, the log is first
             projected to these activities (fragment projection).
-        noise_threshold (float): Noise threshold (only used by the inductive miner).
-        
+        noise_threshold (float): Noise threshold (inductive miner only).
+        miner (str): ``"inductive"`` (default) or ``"split"``.
+
     Returns:
-        tuple: ``(process_tree, projected_log)`` 
+        tuple: ``(model, projected_log)`` where model is a ProcessTree
+            (inductive) or a BPMN object (split).
     """
     if activity_names is not None:
         projected_log = filter_activities(event_log, activity_names)
     else:
         projected_log = event_log
 
-    process_tree = discover_process_tree_inductive(projected_log, noise_threshold=noise_threshold)
-    
-    return process_tree, projected_log
+    if miner == "split":
+        model = split_miner.apply(projected_log)
+    else:
+        model = discover_process_tree_inductive(projected_log, noise_threshold=noise_threshold)
+
+    return model, projected_log
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +385,10 @@ def visualize_process_model(model, event_log=None):
             or a HeuristicsNet.
         event_log (PM4Py EventLog, optional): Used for additional heuristics-net view.
     """
-    if hasattr(model, 'children'):
+    if hasattr(model, 'get_nodes'):
+        bpmn_gviz = bpmn_visualizer.apply(model)
+        bpmn_visualizer.view(bpmn_gviz)
+    elif hasattr(model, 'children'):
         bpmn_model = convert_to_bpmn(model)
         bpmn_gviz = bpmn_visualizer.apply(bpmn_model)
         bpmn_visualizer.view(bpmn_gviz)
@@ -464,6 +472,7 @@ def mine_fragment_subprocess(
     include_end_events=True,
     compute_metrics=True,
     show_plots=False,
+    miner="inductive",
 ):
     """
     Mines a single fragment subprocess from the full event log:
@@ -478,19 +487,20 @@ def mine_fragment_subprocess(
         fragment_activities (list of str): Activity labels belonging to this
             fragment.
         noise_threshold (float): Noise threshold (inductive miner only).
-        miner (str or callable): Miner to use (default ``"inductive"``).
         include_end_events (bool): Whether to also extract end events.
         compute_metrics (bool): If True, compute fitness / precision / F1 / CFC.
         show_plots (bool): Visualise the mined model.
+        miner (str): ``"inductive"`` (default) or ``"split"``.
 
     Returns:
         dict::
-            ``{"metrics": {...} or None, "model": ..., "fragment_log": ...,
+            ``{"metrics": ... or None, "model": ..., "fragment_log": ...,
                 "start_events": [...], "end_events": [...]}``
     """
     # --- 1. Projection + 2. Mine (shared core) ---
     model, fragment_log = mine_process_tree(
-        event_log, activity_names=fragment_activities, noise_threshold=noise_threshold, 
+        event_log, activity_names=fragment_activities, noise_threshold=noise_threshold,
+        miner=miner,
     )
 
     # --- 3. Quality metrics ---
@@ -526,6 +536,7 @@ def mine_all_fragment_models_and_root(
     noise_threshold=0.2,
     show_fragment_plots=False,
     show_root_plot=True,
+    miner="inductive",
 ):
     """
     Full pipeline:
@@ -575,6 +586,7 @@ def mine_all_fragment_models_and_root(
             include_end_events=include_end_events,
             compute_metrics=compute_metrics,
             show_plots=show_fragment_plots,
+            miner=miner,
         )
 
         model = result["model"]
@@ -604,6 +616,7 @@ def mine_all_fragment_models_and_root(
     root_activity_names = list(get_unique_activities(root_log))
     root_model, root_log = mine_process_tree(
         root_log, activity_names=root_activity_names, noise_threshold=noise_threshold,
+        miner=miner,
     )
 
     # Relabel fragments to contiguous indices (only for ProcessTree models)
@@ -639,6 +652,7 @@ def export_xes_by_fragments(
     method_name,
     root_log=None,
     include_root=True,
+    miner="",
 ):
     """
     Exports fragment sub-logs + optional root log as XES files.
@@ -664,16 +678,18 @@ def export_xes_by_fragments(
         root_log (PM4Py EventLog, optional): Pre-mined root log.  Required
             for ``include_root=True``.
         include_root (bool): Export the root-log XES file.
+        miner (str): Miner name (e.g. ``"inductive"`` or ``"split_miner"``).
     """
+    suffix = f".{miner}" if miner else ""
     if include_root:
         if root_log is None:
             raise ValueError("root_log is required when include_root=True. "
                              "Call mine_all_fragment_models_and_root first.")
-        xes_exporter.apply(root_log, f'{export_path}/xes/{filename}.root.{method_name}.xes.gz')
+        xes_exporter.apply(root_log, f'{export_path}/xes/{filename}.root.{method_name}{suffix}.xes.gz')
 
     for idx, fragment_activities in enumerate(fragments):
         fragment_log = filter_activities(event_log, fragment_activities)
-        xes_exporter.apply(fragment_log, f'{export_path}/xes/{filename}.{idx}.{method_name}.xes.gz')
+        xes_exporter.apply(fragment_log, f'{export_path}/xes/{filename}.{idx}.{method_name}{suffix}.xes.gz')
 
 
 # ---------------------------------------------------------------------------
@@ -700,8 +716,7 @@ def save_model_to_pnml(model, file_path):
             or a HeuristicsNet.
         file_path (str): Destination path for the ``.pnml`` file.
     """
-    if hasattr(model, 'children') or hasattr(model, 'dependency_matrix'):
-        # ProcessTree or HeuristicsNet → convert to Petri net
+    if hasattr(model, 'get_nodes') or hasattr(model, 'children') or hasattr(model, 'dependency_matrix'):
         net, initial_marking, final_marking = convert_to_petri_net(model)
     elif isinstance(model, tuple) and len(model) == 3:
         net, initial_marking, final_marking = model
@@ -711,14 +726,14 @@ def save_model_to_pnml(model, file_path):
     pm4py.write_pnml(net, initial_marking, final_marking, file_path)
 
 
-def export_models_to_pnml(root_model, fragment_models, export_path, filename, method):
+def export_models_to_pnml(root_model, fragment_models, export_path, filename, method, miner=""):
     """
     Saves root and fragment process models as PNML files.
 
     Files are written to ``{export_path}/pnml/`` with the naming scheme::
 
-        {export_path}/pnml/{filename}.{idx}.{method}.pnml      # fragment models
-        {export_path}/pnml/{filename}.root.{method}.pnml        # root model
+        {export_path}/pnml/{filename}.{idx}.{method}.{miner}.pnml    # fragment models
+        {export_path}/pnml/{filename}.root.{method}.{miner}.pnml      # root model
 
     Args:
         root_model: The root process model (ProcessTree, PetriNet tuple, etc.).
@@ -727,17 +742,19 @@ def export_models_to_pnml(root_model, fragment_models, export_path, filename, me
             created inside it).
         filename (str): Log filename stem (e.g. ``BPIC12.xes.gz``).
         method (str): Scorer / method identifier (e.g. ``"bigram"``).
+        miner (str): Miner name (e.g. ``"inductive"`` or ``"split_miner"``).
     """
+    suffix = f".{miner}" if miner else ""
     pnml_dir = os.path.join(export_path, 'pnml')
     os.makedirs(pnml_dir, exist_ok=True)
 
     for idx, model in enumerate(fragment_models):
         if model is not None:
-            model_path = os.path.join(pnml_dir, f'{filename}.{idx}.{method}.pnml')
+            model_path = os.path.join(pnml_dir, f'{filename}.{idx}.{method}{suffix}.pnml')
             save_model_to_pnml(model, model_path)
 
     if root_model is not None:
-        root_path = os.path.join(pnml_dir, f'{filename}.root.{method}.pnml')
+        root_path = os.path.join(pnml_dir, f'{filename}.root.{method}{suffix}.pnml')
         save_model_to_pnml(root_model, root_path)
 
 

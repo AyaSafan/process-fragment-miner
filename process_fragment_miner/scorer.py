@@ -153,21 +153,24 @@ class SimilarityScorer(BaseScorer):
 
 class FrequencyScorer(BaseScorer):
     """
-    Scores a fragment by how many sublog traces result from projecting the
-    full event log onto the fragment's activities.  More frequent fragments
-    (those whose activities appear in more traces / more blocks) get higher
-    scores.
+    Scores a fragment by the fraction of log traces that contain the
+    fragment's activities.  More frequent fragments (those whose activities
+    appear in more traces / more blocks) get higher scores.
+
+    The score is normalized by the total number of traces in the log,
+    yielding a value in [0, 1].
     """
 
     def __init__(self, event_log):
         self._event_log = event_log
+        self._num_traces = len(event_log)
         self._cache = {}
 
     def score(self, trace: List[str]) -> float:
         key = frozenset(trace)
         if key not in self._cache:
             projected = filter_activities(self._event_log, trace)
-            self._cache[key] = len(projected)
+            self._cache[key] = len(projected) / self._num_traces
         return float(self._cache[key])
 
 

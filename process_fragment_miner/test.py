@@ -70,10 +70,12 @@ def evaluation(
     path_filtering=False,
     methods=("heuristic", "bigram", "similarity", "frequency"),
     scorer_kwargs=None,
-    noise_threshold=0.2,
+    noise_threshold=0,
     max_depth=1000,
+    miner="inductive",
     show_fragment_plots=True,
-    show_root_plot=True,
+    show_root_plot=False,
+    dependency_threshold=0.2,
 ):
     """
     Runs the full PFM evaluation pipeline.
@@ -102,6 +104,9 @@ def evaluation(
         noise_threshold (float): Threshold for noise filtering (default 0.2).
         show_fragment_plots (bool): Whether to visualise fragment models.
         show_root_plot (bool): Whether to visualise the root model.
+        max_depth (int): Maximum depth for subtrace extraction (default 1000).
+        miner (str): Which process discovery algorithm to use for mining fragment subprocess models.
+        dependency_threshold (float): Threshold for edge inclusion in dependency graph (default 0.2).
     """
     html, txt = _html_or_print()
 
@@ -126,17 +131,18 @@ def evaluation(
 
         for method in methods:
             kw = {} if scorer_kwargs is None else scorer_kwargs
-            miner = ProcessFragmentMiner(
+            pfm = ProcessFragmentMiner(
                 event_log=event_log_no_sentinels,
                 scorer=method,
                 scorer_kwargs=kw,
+                dependency_threshold=dependency_threshold,
             )
 
             # Extract top subtraces from the dependency graph
-            subtraces = miner.extract_subtraces(max_depth=max_depth, min_depth=2, top_k=math.inf)
+            subtraces = pfm.extract_subtraces(max_depth=max_depth, min_depth=2, top_k=math.inf)
 
             # Select best disjoint subset of fragments
-            score, fragments, individual_scores, algorithm_used = miner.mine_best_fragments(
+            score, fragments, individual_scores, algorithm_used = pfm.mine_best_fragments(
                 subtraces=subtraces,
                 score_agg="sum",
                 alpha=0.0,
@@ -160,9 +166,10 @@ def evaluation(
                 event_log, fragments,
                 include_end_events=True,
                 compute_metrics=True,
-                show_root_plot=False,  # evaluation() displays root below
-                show_fragment_plots=False,  # evaluation() visualises fragments below
+                show_root_plot=False,
+                show_fragment_plots=False,
                 noise_threshold=noise_threshold,
+                miner=miner,
             )
             (root_log, root_metrics, mean_metrics, _, fragment_trees,
              root_model, fragment_models, fragment_metrics_list) = out
@@ -190,12 +197,13 @@ def evaluation(
                 txt(f'  Mean fragment metrics: {mm}')
 
             export_models_to_pnml(
-                root_model, fragment_models, export_path, filename, method,
+                root_model, fragment_models, export_path, filename, method, miner=miner,
             )
             export_xes_by_fragments(
                 event_log, fragments, export_path, filename, method,
                 root_log=root_log,
                 include_root=True,
+                miner=miner,
             )
 
         if len(fragment_trees_by_method) > 0:
